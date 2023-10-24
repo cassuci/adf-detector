@@ -60,7 +60,7 @@ def audio_data_generator(audio_files):
 # In[ ]:
 
 
-vae_train = pd.read_csv('vae_train.csv')
+vae_train = pd.read_csv('vae_train.csv').sample(frac=1)
 vae_train_generator = tf.data.Dataset.from_generator(audio_data_generator, args=[vae_train['full_path']], output_signature=(tf.TensorSpec(shape=(1, 128, 176, 1)),tf.TensorSpec(shape=(1, 128, 176, 1))))
 
 
