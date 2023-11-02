@@ -6,7 +6,6 @@ from typing import Tuple
 
 import numpy as np
 import pandas as pd
-import sklearn.base
 import sklearn.metrics as skmetrics
 from matplotlib import pyplot as plt
 
@@ -24,14 +23,10 @@ class BinaryPerformance:
 
         Parameters
         ----------
-        x_pred : np.ndarray
-            Input data for predictions.
         y_score : np.ndarray
             Predicted scores from the model.
         y_true : np.ndarray
             True labels.
-        model : object
-            The trained binary classification model.
         threshold : float, optional
             Classification threshold. Defaults to 0.5.
         """
