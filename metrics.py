@@ -88,6 +88,12 @@ class BinaryPerformance:
         precision = skmetrics.precision_score(self.y_true, self.predictions["y_pred"])
         f_score = skmetrics.f1_score(self.y_true, self.predictions["y_pred"])
         acc = skmetrics.accuracy_score(self.y_true, self.predictions["y_pred"])
+        
+        # EER
+        fpr, tpr, threshold = skmetrics.roc_curve(self.y_true, self.predictions["y_score"], pos_label=1)
+        fnr = 1 - tpr
+        eer_threshold = threshold[np.nanargmin(np.absolute((fnr - fpr)))]
+        eer = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
 
         prefix = label + "_" if add_prefix and len(label) > 0 else ""
 
@@ -99,6 +105,7 @@ class BinaryPerformance:
                 Positive proportion: {np.mean(self.y_true)}
                 ROC AUC: {aucroc:.3f}
                 Average Precision (PR AUC): {ap_score:.3f}
+                EER: {eer:.3f} (with threshold: {eer_threshold})
 
                 With classification threshold = {self.threshold}:
                 Precision: {precision:.3f};
@@ -115,6 +122,7 @@ class BinaryPerformance:
             f"{prefix}recall": [recall],
             f"{prefix}f_score": [f_score],
             f"{prefix}accuracy": [acc],
+            f"{prefix}eer": [eer]
         }
 
         results_dataframe = pd.DataFrame(results_dict)
