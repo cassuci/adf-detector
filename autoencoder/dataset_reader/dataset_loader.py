@@ -110,7 +110,7 @@ class Dataset_ASVspoof2019_train(Dataset):
                 pass
 
         if need_to_load_audio: # will load if no spectrogram loaded, or not ae mode
-            X, fs = librosa.load(self.base_dir + "flac/" + utt_id + ".flac", sr=16000)
+            X, fs = librosa.load(self.base_dir + "flac/" + utt_id + ".flac", sr=self.sr)
             X_pad = pad(X, self.cut)
 
         if need_to_create_spectrogram: # enters when cannot load spectrogram and ae_mode
@@ -142,7 +142,11 @@ class Dataset_ASVspoof2021_eval(Dataset):
         self.base_dir = base_dir
         self.cut = 64600  # take ~4 sec audio (64600 samples)
         self.ae_mode = ae
-        self.ae_detector_mode=ae_detector
+        self.ae_detector_mode = ae_detector
+        self.sr = 16000
+        self.n_fft = 2048
+        self.hop_size = 1024//4
+        self.n_band = 128
 
     def __len__(self):
         return len(self.list_IDs)
@@ -191,7 +195,7 @@ class Dataset_ASVspoof2021_eval(Dataset):
                 pass
 
         if need_to_load_audio: # will load if no spectrogram loaded, or not ae mode
-            X, fs = librosa.load(self.base_dir + "flac/" + utt_id + ".flac", sr=16000)
+            X, fs = librosa.load(self.base_dir + "flac/" + utt_id + ".flac", sr=self.sr)
             X_pad = pad(X, self.cut)
 
         if need_to_create_spectrogram: # enters when cannot load spectrogram and ae_mode
@@ -205,8 +209,8 @@ class Dataset_ASVspoof2021_eval(Dataset):
             return spectrogram_scaled, spectrogram_scaled
         
         if self.ae_detector_mode:
-            return spectrogram_scaled
+            return spectrogram_scaled, utt_id
 
         # if no ae mode, return waveform
         x_inp = Tensor(X_pad)
-        return x_inp
+        return x_inp, utt_id
