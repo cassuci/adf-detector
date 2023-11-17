@@ -1,221 +1,94 @@
-import pandas as pd
-import logging
-
-from dataset_reader import dataset_loader
+import gc
 import argparse
+import torch.utils.data
+from scipy import misc
+from torch import optim
+from torchvision.utils import save_image
+from models import VAE
+import numpy as np
+import pickle
+import time
+import random
 import os
+from dataset_reader import dataset_loader
 from torch.utils.data import DataLoader
-import torch
-from torch import nn
-from torch import Tensor
-from torch.utils.data import DataLoader
+import logging
 from tensorboardX import SummaryWriter
-import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
-
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
-# Create the argument parser
-parser = argparse.ArgumentParser(description="ASVspoof2021 baseline system")
-
-# Dataset
-parser.add_argument(
-    "--database_path",
-    type=str,
-    default="/mnt/c/Users/gabri/Desktop/AVS/DF/",
-    help="Change this to user's full directory address of LA database (ASVspoof2019- for training & development (used as validation), ASVspoof2021 for evaluation scores). We assume that all three ASVspoof 2019 LA train, LA dev, and ASVspoof2021 LA eval data folders are in the same database_path directory.",
-)
-parser.add_argument(
-    "--protocols_path",
-    type=str,
-    default="/mnt/c/Users/gabri/Desktop/AVS/protocols_path/",
-    help="Change with path to user's LA database protocols directory address",
-)
-
-parser.add_argument(
-    "--track", type=str, default="LA", choices=["LA", "PA", "DF"], help="LA/PA/DF"
-)
-parser.add_argument("--batch_size", type=int, default=256)
-parser.add_argument("--model_path", type=str, default=None, help="Model checkpoint")
-
-args = parser.parse_args("--track LA".split())
-
-track = args.track
-# database
-prefix = "ASVspoof_{}".format(track)
-prefix_2019 = "ASVspoof2019.{}".format(track)
-
-# define train dataloader
-d_label_trn, file_train = dataset_loader.genSpoof_list(
-    dir_meta=os.path.join(
-        args.protocols_path
-        + "{}_cm_protocols/{}.cm.train.trn.txt".format(prefix, prefix_2019)
-    ),
-    is_train=True,
-    is_eval=False,
-)
-
-print("no. of training trials", len(file_train))
-
-train_set = dataset_loader.Dataset_ASVspoof2019_train(
-    args,
-    list_IDs=file_train,
-    labels=d_label_trn,
-    base_dir=os.path.join(
-        args.database_path
-        + "{}_{}_train/".format(prefix_2019.split(".")[0], args.track)
-    ),
-    algo=0,
-    ae=True,
-)
-
-train_loader = DataLoader(
-    train_set, batch_size=args.batch_size, num_workers=0, shuffle=True, drop_last=True#, persistent_workers=True
-)
-
-del train_set, d_label_trn
-
-
-# define validation dataloader
-
-d_label_dev, file_dev = dataset_loader.genSpoof_list(
-    dir_meta=os.path.join(
-        args.protocols_path
-        + "{}_cm_protocols/{}.cm.dev.trl.txt".format(prefix, prefix_2019)
-    ),
-    is_train=False,
-    is_eval=False,
-)
-
-print("no. of validation trials", len(file_dev))
-
-dev_set = dataset_loader.Dataset_ASVspoof2019_train(
-    args,
-    list_IDs=file_dev,
-    labels=d_label_dev,
-    base_dir=os.path.join(
-        args.database_path + "{}_{}_dev/".format(prefix_2019.split(".")[0], args.track)
-    ),
-    algo=0,
-    ae=True,
-)
-dev_loader = DataLoader(
-    dev_set, batch_size=args.batch_size, num_workers=0, shuffle=False#, persistent_workers=True
-)
-del dev_set, d_label_dev
-
-# make experiment reproducible
-# set_random_seed(args.seed, args)
-
-# define model saving path
-model_tag = "model_vae_mse_sum"
-model_save_path = os.path.join("models", model_tag)
-
-# set model save directory
-if not os.path.exists(model_save_path):
-    os.mkdir(model_save_path)
-
-# GPU device
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print("Device: {}".format(device))
-
-
-class Flatten(nn.Module):
-    def forward(self, input):
-        return input.view(input.size(0), -1)
-
-
-class UnFlatten(nn.Module):
-    def forward(self, input, size=640):
-        return input.view(input.size(0), size, 1, 1)
-
-
-class VAE(nn.Module):
-    def __init__(self, image_channels=1, h_dim=640, z_dim=128, device=None):
-        super(VAE, self).__init__()
-        self.device = device
-        self.encoder = nn.Sequential(  # 1, 1, 128, 253
-            nn.Conv2d(image_channels, 4, kernel_size=4, stride=2),  # 1, 32, 63, 125
-            nn.ReLU(),
-            nn.Conv2d(4, 8, kernel_size=4, stride=2),  # 1, 64, 30, 61
-            nn.ReLU(),
-            nn.Conv2d(8, 16, kernel_size=4, stride=2),  # 1, 128, 14, 29
-            nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=4, stride=2),  # 1, 256, 6, 13
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),  # 1, 512, 2, 5
-            nn.ReLU(),
-            Flatten(),
-        )
-
-        self.fc1 = nn.Linear(h_dim, z_dim)
-        self.fc2 = nn.Linear(h_dim, z_dim)
-        self.fc3 = nn.Linear(z_dim, h_dim)
-
-        self.decoder = nn.Sequential(
-            UnFlatten(),
-            nn.ConvTranspose2d(h_dim, 32, kernel_size=(5, 5), dilation=2, stride=2),
-            nn.ReLU(),
-            nn.ConvTranspose2d(32, 16, kernel_size=(5, 5), dilation=2, stride=2),
-            nn.ReLU(),
-            nn.ConvTranspose2d(16, 8, kernel_size=(5, 6), dilation=2, stride=(2, 3)),
-            nn.ReLU(),
-            nn.ConvTranspose2d(
-                8,
-                image_channels,
-                kernel_size=(6, 5),
-                dilation=(3, 2),
-                stride=(2, 3),
-                padding=(0, 1),
+def get_data_loader(dataset, args):
+    prefix = f"ASVspoof_{args.track}"
+    prefix_2019 = f"ASVspoof2019.{args.track}"
+    if dataset == "train":
+        d_label_trn, file_train = dataset_loader.genSpoof_list(
+            dir_meta=os.path.join(
+                args.protocols_path
+                + "{}_cm_protocols/{}.cm.train.trn.txt".format(prefix, prefix_2019)
             ),
-            nn.Sigmoid(),
+            is_train=True,
+            is_eval=False,
         )
 
-    def reparameterize(self, mu, logvar):
-        std = logvar.mul(0.5).exp_()
-        # return torch.normal(mu, std)
-        esp = torch.randn(*mu.size(), device=self.device)
-        z = mu + std * esp
-        return z
+        logging.info(f"no. of training trials {len(file_train)}")
 
-    def bottleneck(self, h):
-        mu, logvar = self.fc1(h), self.fc2(h)
-        z = self.reparameterize(mu, logvar)
-        return z, mu, logvar
+        train_set = dataset_loader.Dataset_ASVspoof2019_train(
+            args,
+            list_IDs=file_train,
+            labels=d_label_trn,
+            base_dir=os.path.join(
+                args.database_path
+                + "{}_{}_train/".format(prefix_2019.split(".")[0], args.track)
+            ),
+            algo=0,
+            ae=True,
+        )
 
-    def encode(self, x):
-        h = self.encoder(x)
-        z, mu, logvar = self.bottleneck(h)
-        return z, mu, logvar
+        train_loader = DataLoader(
+            train_set,
+            batch_size=args.batch_size,
+            num_workers=4,
+            shuffle=True,
+            drop_last=True,
+        )
 
-    def decode(self, z):
-        z = self.fc3(z)
-        z = self.decoder(z)
-        return z
+        del train_set, d_label_trn
+        return train_loader
 
-    def forward(self, x):
-        z, mu, logvar = self.encode(x)
-        z = self.decode(z)
-        return z, mu, logvar
+    elif dataset == "dev":
+        d_label_dev, file_dev = dataset_loader.genSpoof_list(
+            dir_meta=os.path.join(
+                args.protocols_path
+                + "{}_cm_protocols/{}.cm.dev.trl.txt".format(prefix, prefix_2019)
+            ),
+            is_train=False,
+            is_eval=False,
+        )
+
+        logging.info(f"no. of validation trials {len(file_dev)}")
+
+        dev_set = dataset_loader.Dataset_ASVspoof2019_train(
+            args,
+            list_IDs=file_dev,
+            labels=d_label_dev,
+            base_dir=os.path.join(
+                args.database_path
+                + "{}_{}_dev/".format(prefix_2019.split(".")[0], args.track)
+            ),
+            algo=0,
+            ae=True,
+        )
+        dev_loader = DataLoader(
+            dev_set, batch_size=args.batch_size, num_workers=4, shuffle=False
+        )
+        del dev_set, d_label_dev
+        return dev_loader
 
 
-model = VAE(image_channels=1, device=device).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay = 1e-8)
-
-if args.model_path:
-    model.load_state_dict(torch.load(args.model_path, map_location=device))
-    print("Model loaded : {}".format(args.model_path))
-
-nb_params = sum([param.view(-1).size()[0] for param in model.parameters()])
-print("nb_params:", nb_params)
-
-
-def loss_fn(recon_x, x, mu, logvar):
+def loss_function(recon_x, x, mu, logvar):
     BCE = F.binary_cross_entropy(recon_x, x, reduction="sum")
     #BCE = F.mse_loss(recon_x, x, reduction="sum")
 
@@ -240,10 +113,10 @@ def evaluate_accuracy(dev_loader, model, device):
         batch_size = batch_x.size(0)
         num_total += batch_size
         batch_x = batch_x.to(device)
-        batch_y = batch_y.float().to(device)
+        batch_y = batch_y.to(device)
         batch_out, mu, logvar = model(batch_x)
 
-        batch_loss, bce, kld = loss_fn(batch_out, batch_y, mu, logvar)
+        batch_loss, bce, kld = loss_function(batch_out, batch_y, mu, logvar)
         val_loss += batch_loss.item() * batch_size
         bce_loss += bce.item() * batch_size
         kld_loss += kld.item() * batch_size
@@ -263,15 +136,14 @@ def train_epoch(train_loader, model, optim, device):
     num_total = 0.0
 
     model.train()
-    batch = 0
     for batch_x, batch_y in train_loader:
         batch_size = batch_x.size(0)
         num_total += batch_size
 
         batch_x = batch_x.to(device)
-        batch_y = batch_y.float().to(device)
+        batch_y = batch_y.to(device)
         batch_out, mu, logvar = model(batch_x)
-        train_loss, bce, kld = loss_fn(batch_out, batch_y, mu, logvar)
+        train_loss, bce, kld = loss_function(batch_out, batch_y, mu, logvar)
         running_loss += train_loss.item() * batch_size
         bce_loss += bce.item() * batch_size
         kld_loss += kld.item() * batch_size
@@ -279,7 +151,6 @@ def train_epoch(train_loader, model, optim, device):
         optim.zero_grad()
         train_loss.backward()
         optim.step()
-        batch += 1
 
     running_loss /= num_total
     bce_loss /= num_total
@@ -288,34 +159,97 @@ def train_epoch(train_loader, model, optim, device):
     return running_loss, bce_loss, kld_loss
 
 
-# Training and validation
-num_epochs = 150
-writer = SummaryWriter("logs/{}".format(model_tag))
+def main():
+    # Create the argument parser
+    parser = argparse.ArgumentParser(description="ASVspoof2021 baseline system")
 
-for epoch in range(num_epochs):
-    import gc
-
-    gc.collect()
-    torch.cuda.empty_cache()
-    running_loss, train_bce, train_kld = train_epoch(
-        train_loader, model, optimizer, device
+    # Dataset
+    parser.add_argument(
+        "--database_path",
+        type=str,
+        default="/home/cassuci/repos/avs/DF/",
+        help="Change this to user's full directory address of LA database (ASVspoof2019- for training & development (used as validation), ASVspoof2021 for evaluation scores). We assume that all three ASVspoof 2019 LA train, LA dev, and ASVspoof2021 LA eval data folders are in the same database_path directory.",
     )
-    writer.add_scalar("loss", running_loss, epoch)
-    writer.add_scalar("train_bce", train_bce, epoch)
-    writer.add_scalar("train_kld", train_kld, epoch)
-
-    torch.cuda.empty_cache()
-    gc.collect()
-    val_loss, val_bce, val_kld = evaluate_accuracy(dev_loader, model, device)
-    writer.add_scalar("val_loss", val_loss, epoch)
-    writer.add_scalar("val_bce", val_bce, epoch)
-    writer.add_scalar("val_kld", val_kld, epoch)
-
-    torch.cuda.empty_cache()
-    gc.collect()
-    print("\nloss{} - {} - {} ".format(epoch, running_loss, val_loss))
-    print("\nbce{} - {} - {} ".format(epoch, train_bce, val_bce))
-    print("\nkld{} - {} - {} ".format(epoch, train_kld, val_kld))
-    torch.save(
-        model.state_dict(), os.path.join(model_save_path, "epoch_{}.pth".format(epoch))
+    parser.add_argument(
+        "--protocols_path",
+        type=str,
+        default="/home/cassuci/repos/avs/protocols_path/",
+        help="Change with path to user's LA database protocols directory address",
     )
+
+    parser.add_argument(
+        "--track", type=str, default="LA", choices=["LA", "PA", "DF"], help="LA/PA/DF"
+    )
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument(
+        "--model_path", type=str, default=None, help="Model checkpoint to load"
+    )
+
+    args = parser.parse_args()
+
+    # DATA FROM HERE
+    # get data_loader
+    train_loader = get_data_loader("train", args)
+    dev_loader = get_data_loader("dev", args)
+
+    # define model saving path
+    model_tag = "model_vae_new_out_padding"
+    model_save_path = os.path.join("models", model_tag)
+
+    # create models path if doesn't exist
+    if not os.path.exists("models"):
+        os.mkdir("models")
+    # set model save directory
+    if not os.path.exists(model_save_path):
+        os.mkdir(model_save_path)
+
+    # MODEL FROM HERE
+    batch_size = args.batch_size
+    # GPU device
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    logging.info("Device: {}".format(device))
+
+    # initialize modellogging
+    model = VAE(image_channels=1, device=device)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-8)
+
+    if args.model_path:
+        model.load_state_dict(torch.load(args.model_path, map_location=device))
+        logging.info(f"Model loaded : {args.model_path}")
+
+    nb_params = sum([param.view(-1).size()[0] for param in model.parameters()])
+    logging.info(f"nb_params: {nb_params}")
+
+    # TRAINING HERE
+
+    # Training and validation
+    num_epochs = 150
+
+    with SummaryWriter(f"logs/{model_tag}") as w:
+        for epoch in range(num_epochs):
+            gc.collect()
+            torch.cuda.empty_cache()
+            running_loss, train_bce, train_kld = train_epoch(
+                train_loader, model, optimizer, device
+            )
+            w.add_scalar("loss", running_loss, epoch)
+            w.add_scalar("train_bce", train_bce, epoch)
+            w.add_scalar("train_kld", train_kld, epoch)
+
+            torch.cuda.empty_cache()
+            gc.collect()
+            val_loss, val_bce, val_kld = evaluate_accuracy(dev_loader, model, device)
+            w.add_scalar("val_loss", val_loss, epoch)
+            w.add_scalar("val_bce", val_bce, epoch)
+            w.add_scalar("val_kld", val_kld, epoch)
+
+            torch.save(
+                model.state_dict(), os.path.join(model_save_path, f"epoch_{epoch}.pth")
+            )
+            logging.info(f'epoch {epoch} ended ')
+            logging.info(f"metrics loss {running_loss} val_loss {val_loss}")
+
+
+if __name__ == "__main__":
+    main()
