@@ -119,7 +119,9 @@ def evaluate_accuracy(dev_loader, model, device):
     # EER
     fpr, tpr, _ = roc_curve(all_labels, all_preds, pos_label=1)
     fnr = 1 - tpr
-    eer_e = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
+    abs_diffs = np.abs(fpr - fnr)
+    min_index = np.argmin(abs_diffs)
+    eer_e = np.mean((fpr[min_index], fnr[min_index]))
 
     return val_loss, aucroc_e, eer_e
 

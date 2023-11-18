@@ -87,8 +87,10 @@ class BinaryPerformance:
         # EER
         fpr, tpr, threshold = skmetrics.roc_curve(self.y_true, self.predictions["y_score"], pos_label=1)
         fnr = 1 - tpr
-        eer_threshold = threshold[np.nanargmin(np.absolute((fnr - fpr)))]
-        eer = fpr[np.nanargmin(np.absolute((fnr - fpr)))]
+        abs_diffs = np.abs(fpr - fnr)
+        min_index = np.argmin(abs_diffs)
+        eer = np.mean((fpr[min_index], fnr[min_index]))
+        eer_threshold = threshold[min_index]
 
         prefix = label + "_" if add_prefix and len(label) > 0 else ""
 
