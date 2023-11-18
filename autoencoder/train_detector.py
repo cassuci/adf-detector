@@ -49,7 +49,7 @@ def get_data_loader(dataset, args):
         train_loader = DataLoader(
             train_set,
             batch_size=args.batch_size,
-            num_workers=4,
+            num_workers=0,
             shuffle=True,
             drop_last=True,
         )
@@ -81,7 +81,7 @@ def get_data_loader(dataset, args):
             ae_detector=True,
         )
         dev_loader = DataLoader(
-            dev_set, batch_size=args.batch_size, num_workers=4, shuffle=False
+            dev_set, batch_size=args.batch_size, num_workers=0, shuffle=False
         )
         del dev_set, d_label_dev
         return dev_loader
@@ -161,15 +161,16 @@ def main():
     parser.add_argument(
         "--database_path",
         type=str,
-        default="/home/cassuci/repos/avs/DF/",
+        default="/mnt/c/Users/gabri/Desktop/avs/DF/",
         help="Change this to user's full directory address of LA database (ASVspoof2019- for training & development (used as validation), ASVspoof2021 for evaluation scores). We assume that all three ASVspoof 2019 LA train, LA dev, and ASVspoof2021 LA eval data folders are in the same database_path directory.",
     )
     parser.add_argument(
         "--protocols_path",
         type=str,
-        default="/home/cassuci/repos/avs/protocols_path/",
+        default="/mnt/c/Users/gabri/Desktop/avs/protocols_path/",
         help="Change with path to user's LA database protocols directory address",
     )
+
 
     parser.add_argument(
         "--track", type=str, default="LA", choices=["LA", "PA", "DF"], help="LA/PA/DF"
@@ -178,6 +179,7 @@ def main():
     parser.add_argument(
         "--model_path", type=str, default=None, help="Model checkpoint to load"
     )
+    parser.add_argument('--continue_epoch', type=str, default=0, help='Initial epoch to continue from')
 
     args = parser.parse_args()
 
@@ -187,7 +189,7 @@ def main():
     dev_loader = get_data_loader("dev", args)
 
     # define model saving path
-    model_tag = "model_detector_vae_float"
+    model_tag = "model_detector_vae_bigger"
     model_save_path = os.path.join("models", model_tag)
 
     # create models path if doesn't exist
@@ -198,7 +200,6 @@ def main():
         os.mkdir(model_save_path)
 
     # MODEL FROM HERE
-    batch_size = args.batch_size
     # GPU device
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logging.info("Device: {}".format(device))
@@ -221,7 +222,7 @@ def main():
     num_epochs = 150
 
     with SummaryWriter(f"logs/{model_tag}") as w:
-        for epoch in range(num_epochs):
+        for epoch in range(args.continue_epoch, num_epochs):
             gc.collect()
             torch.cuda.empty_cache()
             running_loss = train_epoch(
