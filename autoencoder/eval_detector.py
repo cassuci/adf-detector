@@ -49,9 +49,10 @@ parser.add_argument(
     "--track", type=str, default="LA", choices=["LA", "PA", "DF"], help="LA/PA/DF"
 )
 parser.add_argument("--batch_size", type=int, default=1024)
+parser.add_argument("--itw", action='store_true', default=False)
 
 
-args = parser.parse_args("--track DF --eval_output eval_detector_bigger.out".split())
+args = parser.parse_args("--track DF --eval_output eval_detector_bigger_itw.out --itw".split())
 
 track = args.track
 # database
@@ -106,20 +107,27 @@ def produce_evaluation_file(dataset, model, device, save_path):
 model = Detector(image_channels=1, device=device).to(device)
 model.load_state_dict(torch.load("models/model_detector_vae_bigger/epoch_57.pth"))
 
-file_eval = dataset_loader.genSpoof_list(
-    dir_meta=os.path.join(
-        args.protocols_path
-        + "ASVspoof_{}_cm_protocols/{}.cm.eval.trl.txt".format(track, prefix_2021)
-    ),
-    is_train=False,
-    is_eval=True,
-)
-print("no. of eval trials", len(file_eval))
-eval_set = dataset_loader.Dataset_ASVspoof2021_eval(
-    list_IDs=file_eval,
-    base_dir=os.path.join(
-        args.database_path + "ASVspoof2021_{}_eval/".format(args.track)
-    ),
-    ae_detector=True,
-)
+if not args.itw:
+    file_eval = dataset_loader.genSpoof_list(
+        dir_meta=os.path.join(
+            args.protocols_path
+            + "ASVspoof_{}_cm_protocols/{}.cm.eval.trl.txt".format(track, prefix_2021)
+        ),
+        is_train=False,
+        is_eval=True,
+    )
+    print("no. of eval trials", len(file_eval))
+    eval_set = dataset_loader.Dataset_ASVspoof2021_eval(
+        list_IDs=file_eval,
+        base_dir=os.path.join(
+            args.database_path + "ASVspoof2021_{}_eval/".format(args.track)
+        ),
+        ae_detector=True,
+    )
+else:
+    print('running for itw')
+    meta, filelist = dataset_loader.genSpoof_list_inthewild('/mnt/f/downloads/release_in_the_wild/meta.csv')
+    print("no. of eval trials", len(filelist))
+    eval_set = dataset_loader.Dataset_InTheWild_eval(filelist, meta, '/mnt/f/downloads/release_in_the_wild/', ae_detector=True)
+
 produce_evaluation_file(eval_set, model, device, args.eval_output)
