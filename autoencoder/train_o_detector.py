@@ -38,9 +38,7 @@ parser.add_argument(
     help="Change with path to user's LA database protocols directory address",
 )
 
-parser.add_argument(
-    "--track", type=str, default="LA", choices=["LA", "PA", "DF"], help="LA/PA/DF"
-)
+parser.add_argument("--track", type=str, default="LA", choices=["LA", "PA", "DF"], help="LA/PA/DF")
 parser.add_argument("--batch_size", type=int, default=16)
 
 
@@ -54,8 +52,7 @@ prefix_2019 = "ASVspoof2019.{}".format(track)
 # define train dataloader
 d_label_trn, file_train = dataset_loader.genSpoof_list(
     dir_meta=os.path.join(
-        args.protocols_path
-        + "{}_cm_protocols/{}.cm.train.trn.txt".format(prefix, prefix_2019)
+        args.protocols_path + "{}_cm_protocols/{}.cm.train.trn.txt".format(prefix, prefix_2019)
     ),
     is_train=True,
     is_eval=False,
@@ -68,8 +65,7 @@ train_set = dataset_loader.Dataset_ASVspoof2019_train(
     list_IDs=file_train,
     labels=d_label_trn,
     base_dir=os.path.join(
-        args.database_path
-        + "{}_{}_train/".format(prefix_2019.split(".")[0], args.track)
+        args.database_path + "{}_{}_train/".format(prefix_2019.split(".")[0], args.track)
     ),
     algo=0,
     ae_detector=True,
@@ -86,8 +82,7 @@ del train_set, d_label_trn
 
 d_label_dev, file_dev = dataset_loader.genSpoof_list(
     dir_meta=os.path.join(
-        args.protocols_path
-        + "{}_cm_protocols/{}.cm.dev.trl.txt".format(prefix, prefix_2019)
+        args.protocols_path + "{}_cm_protocols/{}.cm.dev.trl.txt".format(prefix, prefix_2019)
     ),
     is_train=False,
     is_eval=False,
@@ -105,9 +100,7 @@ dev_set = dataset_loader.Dataset_ASVspoof2019_train(
     algo=0,
     ae_detector=True,
 )
-dev_loader = DataLoader(
-    dev_set, batch_size=args.batch_size, num_workers=4, shuffle=False
-)
+dev_loader = DataLoader(dev_set, batch_size=args.batch_size, num_workers=4, shuffle=False)
 del dev_set, d_label_dev
 
 # make experiment reproducible
@@ -204,12 +197,13 @@ class VAE(nn.Module):
         z = self.decode(z)
         return z, mu, logvar
 
+
 class Detector(nn.Module):
     def __init__(self, image_channels=1, h_dim=640, z_dim=128, device=None):
         super().__init__()
         self.device = device
         self.vae = VAE(image_channels=image_channels, h_dim=h_dim, z_dim=z_dim, device=device)
-        self.vae.load_state_dict(torch.load('models/model_vae/epoch_84.pth'))
+        self.vae.load_state_dict(torch.load("models/model_vae/epoch_84.pth"))
         self.vae.eval()
 
         self.relu = nn.ReLU(inplace=True)
@@ -312,9 +306,7 @@ for epoch in range(num_epochs):
 
     gc.collect()
     torch.cuda.empty_cache()
-    running_loss = train_epoch(
-        train_loader, model, optimizer, device
-    )
+    running_loss = train_epoch(train_loader, model, optimizer, device)
     writer.add_scalar("loss", running_loss, epoch)
 
     torch.cuda.empty_cache()
@@ -326,6 +318,4 @@ for epoch in range(num_epochs):
     gc.collect()
     print("\nloss epoch:{} - train_loss: {} - val_loss: {} ".format(epoch, running_loss, val_loss))
     print("\nmetrics epoch:{} - val_aucroc: {} - val_err: {} ".format(epoch, aucroc, val_eer))
-    torch.save(
-        model.state_dict(), os.path.join(model_save_path, "epoch_{}.pth".format(epoch))
-    )
+    torch.save(model.state_dict(), os.path.join(model_save_path, "epoch_{}.pth".format(epoch)))

@@ -15,9 +15,7 @@ class BinaryPerformance:
     Evaluate binary classification model performance and visualize results.
     """
 
-    def __init__(
-        self, y_true, y_score=None, threshold=0.5
-    ):  # pylint: disable=too-many-arguments
+    def __init__(self, y_true, y_score=None, threshold=0.5):  # pylint: disable=too-many-arguments
         """
         Initialize the BinaryPerformance instance.
 
@@ -48,7 +46,7 @@ class BinaryPerformance:
             y_score = self.given_y_score
             y_pred = (self.given_y_score >= self.threshold).astype(int)
         else:
-            raise(ValueError("You need to provide y_score so I can generate binary predictions."))
+            raise (ValueError("You need to provide y_score so I can generate binary predictions."))
 
         predictions = pd.DataFrame({"y_pred": y_pred, "y_score": y_score})
 
@@ -83,9 +81,11 @@ class BinaryPerformance:
         precision = skmetrics.precision_score(self.y_true, self.predictions["y_pred"])
         f_score = skmetrics.f1_score(self.y_true, self.predictions["y_pred"])
         acc = skmetrics.accuracy_score(self.y_true, self.predictions["y_pred"])
-        
+
         # EER
-        fpr, tpr, threshold = skmetrics.roc_curve(self.y_true, self.predictions["y_score"], pos_label=1)
+        fpr, tpr, threshold = skmetrics.roc_curve(
+            self.y_true, self.predictions["y_score"], pos_label=1
+        )
         fnr = 1 - tpr
         abs_diffs = np.abs(fpr - fnr)
         min_index = np.argmin(abs_diffs)
@@ -119,7 +119,7 @@ class BinaryPerformance:
             f"{prefix}recall": [recall],
             f"{prefix}f_score": [f_score],
             f"{prefix}accuracy": [acc],
-            f"{prefix}eer": [eer]
+            f"{prefix}eer": [eer],
         }
 
         results_dataframe = pd.DataFrame(results_dict)

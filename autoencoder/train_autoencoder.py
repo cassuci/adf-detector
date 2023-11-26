@@ -4,7 +4,7 @@ import torch.utils.data
 from scipy import misc
 from torch import optim
 from torchvision.utils import save_image
-from models import VAE
+from models import VAE, NoiseVAE
 import numpy as np
 import pickle
 import time
@@ -19,6 +19,7 @@ import torch.nn.functional as F
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+
 
 def get_data_loader(dataset, args):
     prefix = f"ASVspoof_{args.track}"
@@ -40,11 +41,11 @@ def get_data_loader(dataset, args):
             list_IDs=file_train,
             labels=d_label_trn,
             base_dir=os.path.join(
-                args.database_path
-                + "{}_{}_train/".format(prefix_2019.split(".")[0], args.track)
+                args.database_path + "{}_{}_train/".format(prefix_2019.split(".")[0], args.track)
             ),
             algo=0,
             ae=True,
+            noise_ae=True,
         )
 
         train_loader = DataLoader(
@@ -75,30 +76,28 @@ def get_data_loader(dataset, args):
             list_IDs=file_dev,
             labels=d_label_dev,
             base_dir=os.path.join(
-                args.database_path
-                + "{}_{}_dev/".format(prefix_2019.split(".")[0], args.track)
+                args.database_path + "{}_{}_dev/".format(prefix_2019.split(".")[0], args.track)
             ),
             algo=0,
             ae=True,
+            noise_ae=True,
         )
-        dev_loader = DataLoader(
-            dev_set, batch_size=args.batch_size, num_workers=0, shuffle=False
-        )
+        dev_loader = DataLoader(dev_set, batch_size=args.batch_size, num_workers=0, shuffle=False)
         del dev_set, d_label_dev
         return dev_loader
 
 
 def loss_function(recon_x, x, mu, logvar):
     BCE = F.binary_cross_entropy(recon_x, x, reduction="sum")
-    #BCE = F.mse_loss(recon_x, x, reduction="sum")
+    # BCE = F.mse_loss(recon_x, x, reduction="sum")
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    #KLD = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-    kld_loss = -0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp())
+    # KLD = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+    kld_loss = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
 
-    return BCE + 2*kld_loss, BCE, kld_loss
+    return BCE + 2 * kld_loss, BCE, kld_loss
 
 
 @torch.no_grad()
@@ -181,10 +180,13 @@ def main():
         "--track", type=str, default="LA", choices=["LA", "PA", "DF"], help="LA/PA/DF"
     )
     parser.add_argument("--batch_size", type=int, default=512)
+    parser.add_argument("--model_path", type=str, default=None, help="Model checkpoint to load")
     parser.add_argument(
-        "--model_path", type=str, default=None, help="Model checkpoint to load"
+        "--continue_epoch", type=int, default=0, help="Initial epoch to continue from"
     )
-    parser.add_argument('--continue_epoch', type=int, default=0, help='Initial epoch to continue from')
+    parser.add_argument(
+        "--noise_vae", action="store_true", default=False, help="Use noise spectrogram instead"
+    )
 
     args = parser.parse_args()
 
@@ -194,7 +196,7 @@ def main():
     dev_loader = get_data_loader("dev", args)
 
     # define model saving path
-    model_tag = "model_vae_new_test"
+    model_tag = "model_vae_noise"
     model_save_path = os.path.join("models", model_tag)
 
     # create models path if doesn't exist
@@ -210,7 +212,10 @@ def main():
     logging.info("Device: {}".format(device))
 
     # initialize modellogging
-    model = VAE(image_channels=1, device=device).to(device)
+    if args.noise_vae:
+        model = NoiseVAE(image_channels=1, device=device).to(device)
+    else:
+        model = VAE(image_channels=1, device=device).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-8)
 
@@ -244,10 +249,8 @@ def main():
             w.add_scalar("val_bce", val_bce, epoch)
             w.add_scalar("val_kld", val_kld, epoch)
 
-            torch.save(
-                model.state_dict(), os.path.join(model_save_path, f"epoch_{epoch}.pth")
-            )
-            logging.info(f'epoch {epoch} ended ')
+            torch.save(model.state_dict(), os.path.join(model_save_path, f"epoch_{epoch}.pth"))
+            logging.info(f"epoch {epoch} ended ")
             logging.info(f"metrics loss {running_loss} val_loss {val_loss}")
 
 

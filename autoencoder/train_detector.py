@@ -4,7 +4,7 @@ import torch.utils.data
 from scipy import misc
 from torch import optim
 from torchvision.utils import save_image
-from models import Detector
+from models import Detector, BiDetector
 import os
 from dataset_reader import dataset_loader
 from torch.utils.data import DataLoader
@@ -39,11 +39,11 @@ def get_data_loader(dataset, args):
             list_IDs=file_train,
             labels=d_label_trn,
             base_dir=os.path.join(
-                args.database_path
-                + "{}_{}_train/".format(prefix_2019.split(".")[0], args.track)
+                args.database_path + "{}_{}_train/".format(prefix_2019.split(".")[0], args.track)
             ),
             algo=0,
-            ae_detector=True,
+            ae_detector=not args.bidetector,
+            noise_detector=args.bidetector,
         )
 
         train_loader = DataLoader(
@@ -74,15 +74,13 @@ def get_data_loader(dataset, args):
             list_IDs=file_dev,
             labels=d_label_dev,
             base_dir=os.path.join(
-                args.database_path
-                + "{}_{}_dev/".format(prefix_2019.split(".")[0], args.track)
+                args.database_path + "{}_{}_dev/".format(prefix_2019.split(".")[0], args.track)
             ),
             algo=0,
-            ae_detector=True,
+            ae_detector=not args.bidetector,
+            noise_detector=args.bidetector,
         )
-        dev_loader = DataLoader(
-            dev_set, batch_size=args.batch_size, num_workers=0, shuffle=False
-        )
+        dev_loader = DataLoader(dev_set, batch_size=args.batch_size, num_workers=0, shuffle=False)
         del dev_set, d_label_dev
         return dev_loader
 
@@ -101,12 +99,13 @@ def evaluate_accuracy(dev_loader, model, device):
     all_labels = []
     all_preds = []
     weight = torch.FloatTensor([0.1, 0.9]).to(device)
-    for batch_x, batch_y in dev_loader:
-        batch_size = batch_x.size(0)
+    for (batch_x1, batch_x2), batch_y in dev_loader:
+        batch_size = batch_x1.size(0)
         num_total += batch_size
-        batch_x = batch_x.to(device)
+        batch_x1 = batch_x1.to(device)
+        batch_x2 = batch_x2.to(device)
         batch_y = batch_y.view(-1).type(torch.int64).to(device)
-        batch_out = model(batch_x)
+        batch_out = model(batch_x1, batch_x2)
         all_labels.extend(batch_y.cpu().numpy())
         all_preds.extend(batch_out.cpu().numpy()[:, 1])
 
@@ -134,14 +133,14 @@ def train_epoch(train_loader, model, optim, device):
     model.train()
     batch = 0
     weight = torch.FloatTensor([0.1, 0.9]).to(device)
-
-    for batch_x, batch_y in train_loader:
-        batch_size = batch_x.size(0)
+    for (batch_x1, batch_x2), batch_y in train_loader:
+        batch_size = batch_x1.size(0)
         num_total += batch_size
 
-        batch_x = batch_x.to(device)
+        batch_x1 = batch_x1.to(device)
+        batch_x2 = batch_x2.to(device)
         batch_y = batch_y.view(-1).type(torch.int64).to(device)
-        batch_out = model(batch_x)
+        batch_out = model(batch_x1, batch_x2)
         train_loss = loss_function(batch_out, batch_y, weight)
         running_loss += train_loss.item() * batch_size
 
@@ -173,15 +172,20 @@ def main():
         help="Change with path to user's LA database protocols directory address",
     )
 
-
     parser.add_argument(
         "--track", type=str, default="LA", choices=["LA", "PA", "DF"], help="LA/PA/DF"
     )
     parser.add_argument("--batch_size", type=int, default=256)
+    parser.add_argument("--model_path", type=str, default=None, help="Model checkpoint to load")
     parser.add_argument(
-        "--model_path", type=str, default=None, help="Model checkpoint to load"
+        "--continue_epoch", type=str, default=0, help="Initial epoch to continue from"
     )
-    parser.add_argument('--continue_epoch', type=str, default=0, help='Initial epoch to continue from')
+    parser.add_argument(
+        "--bidetector",
+        action="store_true",
+        default=False,
+        help="Use bi spectrogram for audio detection",
+    )
 
     args = parser.parse_args()
 
@@ -191,7 +195,7 @@ def main():
     dev_loader = get_data_loader("dev", args)
 
     # define model saving path
-    model_tag = "model_detector_vae_bigger"
+    model_tag = "model_detector_vae_bidetector_lower_lr"
     model_save_path = os.path.join("models", model_tag)
 
     # create models path if doesn't exist
@@ -207,9 +211,13 @@ def main():
     logging.info("Device: {}".format(device))
 
     # initialize modellogging
-    model = Detector(image_channels=1, device=device).to(device)
+    if args.bidetector:
+        print('loaded bidetector')
+        model = BiDetector(image_channels=1, device=device).to(device)
+    else:
+        model = Detector(image_channels=1, device=device).to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-8)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
     if args.model_path:
         model.load_state_dict(torch.load(args.model_path, map_location=device))
@@ -227,9 +235,7 @@ def main():
         for epoch in range(args.continue_epoch, num_epochs):
             gc.collect()
             torch.cuda.empty_cache()
-            running_loss = train_epoch(
-                train_loader, model, optimizer, device
-            )
+            running_loss = train_epoch(train_loader, model, optimizer, device)
             w.add_scalar("loss", running_loss, epoch)
 
             torch.cuda.empty_cache()
@@ -239,9 +245,7 @@ def main():
             w.add_scalar("val_err", val_err, epoch)
             w.add_scalar("val_aucroc", val_aucroc, epoch)
 
-            torch.save(
-                model.state_dict(), os.path.join(model_save_path, f"epoch_{epoch}.pth")
-            )
+            torch.save(model.state_dict(), os.path.join(model_save_path, f"epoch_{epoch}.pth"))
             logging.info(f"epoch {epoch} ended loss {running_loss} val loss {val_loss}")
             logging.info(f"val metrics err {val_err} aucroc {val_aucroc}")
 
