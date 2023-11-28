@@ -81,6 +81,8 @@ class BinaryPerformance:
         precision = skmetrics.precision_score(self.y_true, self.predictions["y_pred"])
         f_score = skmetrics.f1_score(self.y_true, self.predictions["y_pred"])
         acc = skmetrics.accuracy_score(self.y_true, self.predictions["y_pred"])
+        balanced_acc = skmetrics.balanced_accuracy_score(self.y_true, self.predictions["y_pred"])
+
 
         # EER
         fpr, tpr, threshold = skmetrics.roc_curve(
@@ -109,6 +111,7 @@ class BinaryPerformance:
                 Recall: {recall:.3f};
                 F-score: {f_score:.3f};
                 Accuracy: {acc:.3f}
+                Balanced Accuracy: {balanced_acc:.3f}
                 """
             )
 
@@ -119,6 +122,7 @@ class BinaryPerformance:
             f"{prefix}recall": [recall],
             f"{prefix}f_score": [f_score],
             f"{prefix}accuracy": [acc],
+            f"{prefix}balanced_accuracy": [balanced_acc],
             f"{prefix}eer": [eer],
         }
 
