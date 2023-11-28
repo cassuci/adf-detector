@@ -84,7 +84,7 @@ class Detector(nn.Module):
         super().__init__()
         self.device = device
         self.vae = VAE(image_channels=image_channels, h_dim=h_dim, z_dim=z_dim, device=device)
-        self.vae.load_state_dict(torch.load("models/model_vae_new_test/epoch_83.pth"))
+        self.vae.load_state_dict(torch.load("models/model_vae/epoch_final.pth"))
         # self.vae.eval()
 
         self.relu = nn.ReLU(inplace=True)
@@ -182,8 +182,8 @@ class BiDetector(nn.Module):
         super().__init__()
         self.device = device
         self.vae = VAE(image_channels=image_channels, h_dim=h_dim, z_dim=z_dim, device=device)
-        self.vae.load_state_dict(torch.load("models/model_vae_new_test/epoch_83.pth"))
-        self.vae.eval()
+        self.vae.load_state_dict(torch.load("models/model_vae/epoch_final.pth"))
+        #self.vae.eval()
 
         self.relu = nn.ReLU(inplace=True)
         self.softmax = nn.Softmax(dim=1)

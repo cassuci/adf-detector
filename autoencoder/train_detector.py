@@ -195,7 +195,7 @@ def main():
     dev_loader = get_data_loader("dev", args)
 
     # define model saving path
-    model_tag = "model_detector_vae_bidetector_lower_lr"
+    model_tag = "model_detector_noise_finetune_vae_2"
     model_save_path = os.path.join("models", model_tag)
 
     # create models path if doesn't exist
